@@ -7,6 +7,64 @@
 declare port
 declare renew_flow=false
 declare flow_workdir=""
+declare aqara_default_server=""
+declare aqara_default_appid=""
+declare aqara_default_appkey=""
+
+escape_sed_value() {
+	printf '%s' "$1" | sed -e 's/[\\/&]/\\&/g'
+}
+
+set_aqara_defaults() {
+	case "${1^^}" in
+		CN)
+			aqara_default_server="aiot-rpc.aqara.cn"
+			aqara_default_appid="94549908487478b220992a70"
+			aqara_default_appkey="Jddz01kIORDYrBzqGYgpUXKBnIHfW8E3"
+			;;
+		EU|AF)
+			aqara_default_server="rpc-ger.aqara.com"
+			aqara_default_appid="7be1984f0556276133336839"
+			aqara_default_appkey="Jddz01kIORDYrBzqGYgpUXKBnIHfW8E3"
+			;;
+		RU)
+			aqara_default_server="rpc-ru.aqara.com"
+			aqara_default_appid="94549908487478b220992a70"
+			aqara_default_appkey="euGhPe2rcmxwculATNj45eEtnd50zp0I"
+			;;
+		KR|JP)
+			aqara_default_server="rpc-kr.aqara.com"
+			aqara_default_appid="94549908487478b220992a70"
+			aqara_default_appkey="euGhPe2rcmxwculATNj45eEtnd50zp0I"
+			;;
+		AU|ME)
+			aqara_default_server="rpc-au.aqara.com"
+			aqara_default_appid="94549908487478b220992a70"
+			aqara_default_appkey="Jddz01kIORDYrBzqGYgpUXKBnIHfW8E3"
+			;;
+		USA|US|HMT|OTHER|*)
+			aqara_default_server="aiot-rpc-usa.aqara.com"
+			aqara_default_appid="94549908487478b220992a70"
+			aqara_default_appkey="Jddz01kIORDYrBzqGYgpUXKBnIHfW8E3"
+			;;
+	esac
+}
+
+apply_flow_values() {
+	local flow_file=$1
+	local lumi_value=$2
+
+	sed -i \
+		-e "s|XXXXXXAREAXXXXXXXXXXX|$(escape_sed_value "$AREA")|g" \
+		-e "s|XXXXXXTOKENXXXXXXXXXXX|$(escape_sed_value "$TOKEN")|g" \
+		-e "s|XXXXXXAPPIDXXXXXXXXXXX|$(escape_sed_value "$APPID")|g" \
+		-e "s|XXXXXXAPPKEYXXXXXXXXXXX|$(escape_sed_value "$APPKEY")|g" \
+		-e "s|XXXXXXUSERIDXXXXXXXXXXX|$(escape_sed_value "$USERID")|g" \
+		-e "s|lumi1.XXXXXXXXXXXX|$(escape_sed_value "$lumi_value")|g" \
+		-e "s|rpc-ger.aqara.com|$(escape_sed_value "$SERVER")|g" \
+		-e "s|it-IT|$(escape_sed_value "$TIMEZONE")|g" \
+		"$flow_file"
+}
 
 if bashio::config.true 'renew_flow'; then
 	bashio::log.info "renew_flow true"
@@ -84,6 +142,7 @@ if [ "$renew_flow" = "true" ] || ! bashio::fs.file_exists '/config/flows.json'; 
 	TIMEZONE=$(bashio::config 'timezoneAqara') || bashio::log.info "error timezoneAqara ......."
 
 	AREA=$(bashio::config 'serverAqara') || bashio::log.info "error serverAqara ......."
+	set_aqara_defaults "$AREA"
 
     if [ "$LUMI1" = "" ]; then	
 	bashio::log.warning "G3 lumi1 not set"
@@ -109,7 +168,8 @@ if [ "$renew_flow" = "true" ] || ! bashio::fs.file_exists '/config/flows.json'; 
 	ls "$flow_workdir"/Aqara_*.json || bashio::exit.nok "No AqaraPost flow json was downloaded"
 		
 	bashio::log.info "Starting AqaraPost-Homeassistant tokenGenerator ..."
-	wget -q https://raw.githubusercontent.com/sdavides/AqaraPOST-Homeassistant/main/generatejson/AqaraPOST-tokenGenerator.py --output-document=/tmp/AqaraPOST-tokenGenerator.py  && chmod +x /tmp/AqaraPOST-tokenGenerator.py && ( echo "$USERNAME" ; echo "$PASSWORD"; echo $(bashio::config 'serverAqara') )  | /tmp/AqaraPOST-tokenGenerator.py > /tmp/AqaraPOST-tokenGenerator.json || bashio::exit.nok "error tokenGenerator"
+	chmod +x /usr/local/bin/AqaraPOST-tokenGenerator.py || bashio::log.info "tokenGenerator script already executable"
+	( echo "$USERNAME" ; echo "$PASSWORD"; echo "$(bashio::config 'serverAqara')" ) | /usr/local/bin/AqaraPOST-tokenGenerator.py > /tmp/AqaraPOST-tokenGenerator.json || bashio::log.warning "tokenGenerator command exited with an error"
 	cat /tmp/AqaraPOST-tokenGenerator.json | grep Username || bashio::log.info "Username Token error......."
 	cat /tmp/AqaraPOST-tokenGenerator.json | grep Area || bashio::log.info "Area Token error......."
 
@@ -149,35 +209,63 @@ if [ "$renew_flow" = "true" ] || ! bashio::fs.file_exists '/config/flows.json'; 
 	SERVER=
     fi
 
+	if [ "$APPID" = "" ]; then
+		APPID=$aqara_default_appid
+		bashio::log.warning "Using static AppID for $AREA"
+	fi
+
+	if [ "$APPKEY" = "" ]; then
+		APPKEY=$aqara_default_appkey
+		bashio::log.warning "Using static AppKey for $AREA"
+	fi
+
+	if [ "$SERVER" = "" ]; then
+		SERVER=$aqara_default_server
+		bashio::log.warning "Using static server for $AREA"
+	fi
+
 	if [ "$TOKEN" = "" ] || [ "$APPID" = "" ] || [ "$APPKEY" = "" ] || [ "$USERID" = "" ] || [ "$SERVER" = "" ]; then
 		if bashio::fs.file_exists '/config/flows.json'; then
 			bashio::log.warning "tokenGenerator did not return all required values; keeping existing flows.json"
 			rm -rf "$flow_workdir" || bashio::log.info "......."
-			rm -rf /tmp/AqaraPOST-tokenGenerator.py || bashio::log.info "......."
 			rm -rf /tmp/AqaraPOST-tokenGenerator.json || bashio::log.info "......."
 			renew_flow=false
 		else
-			bashio::exit.nok "Cannot create AqaraPOST flows: tokenGenerator did not return all required values"
+			bashio::log.warning "tokenGenerator did not return all required values; generating Node-RED flow with placeholder Aqara credentials so the add-on can still start"
+			if [ "$TOKEN" = "" ]; then
+				TOKEN="MISSING_AQARA_TOKEN"
+			fi
+			if [ "$USERID" = "" ]; then
+				USERID="MISSING_AQARA_USERID"
+			fi
+			if [ "$APPID" = "" ]; then
+				APPID="MISSING_AQARA_APPID"
+			fi
+			if [ "$APPKEY" = "" ]; then
+				APPKEY="MISSING_AQARA_APPKEY"
+			fi
+			if [ "$SERVER" = "" ]; then
+				SERVER="rpc-ger.aqara.com"
+			fi
 		fi
 	fi
 
 	if [ "$renew_flow" = "true" ] || ! bashio::fs.file_exists '/config/flows.json'; then
 	
 	if  bashio::fs.file_exists "$flow_workdir/$FLOW_NAME1.json"; then
-	sed -i "s/XXXXXXAREAXXXXXXXXXXX/$AREA/g" "$flow_workdir/$FLOW_NAME1.json" && sed -i "s/XXXXXXTOKENXXXXXXXXXXX/$TOKEN/g" "$flow_workdir/$FLOW_NAME1.json" && sed -i "s/XXXXXXAPPIDXXXXXXXXXXX/$APPID/g" "$flow_workdir/$FLOW_NAME1.json" && sed -i "s/XXXXXXAPPKEYXXXXXXXXXXX/$APPKEY/g" "$flow_workdir/$FLOW_NAME1.json" && sed -i "s/XXXXXXUSERIDXXXXXXXXXXX/$USERID/g" "$flow_workdir/$FLOW_NAME1.json" && sed -i "s/lumi1.XXXXXXXXXXXX/$LUMI1/g" "$flow_workdir/$FLOW_NAME1.json" && sed -i "s/rpc-ger.aqara.com/$SERVER/g" "$flow_workdir/$FLOW_NAME1.json" && sed -i "s/it-IT/$TIMEZONE/g" "$flow_workdir/$FLOW_NAME1.json" && bashio::log.info "tokenGenerator Insert value $FLOW_NAME1.json complete." || bashio::exit.nok "Error AqaraPost-Homeassistant tokenGenerator"
+	apply_flow_values "$flow_workdir/$FLOW_NAME1.json" "$LUMI1" && bashio::log.info "tokenGenerator Insert value $FLOW_NAME1.json complete." || bashio::exit.nok "Error AqaraPost-Homeassistant tokenGenerator"
 	fi
 		
 	if  bashio::fs.file_exists "$flow_workdir/$FLOW_NAME2.json"; then
-	sed -i "s/XXXXXXAREAXXXXXXXXXXX/$AREA/g" "$flow_workdir/$FLOW_NAME2.json" && sed -i "s/XXXXXXTOKENXXXXXXXXXXX/$TOKEN/g" "$flow_workdir/$FLOW_NAME2.json" && sed -i "s/XXXXXXAPPIDXXXXXXXXXXX/$APPID/g" "$flow_workdir/$FLOW_NAME2.json"  && sed -i "s/XXXXXXAPPKEYXXXXXXXXXXX/$APPKEY/g" "$flow_workdir/$FLOW_NAME2.json" && sed -i "s/XXXXXXUSERIDXXXXXXXXXXX/$USERID/g" "$flow_workdir/$FLOW_NAME2.json" && sed -i "s/lumi1.XXXXXXXXXXXX/$LUMI2/g" "$flow_workdir/$FLOW_NAME2.json" && sed -i "s/rpc-ger.aqara.com/$SERVER/g" "$flow_workdir/$FLOW_NAME2.json" && sed -i "s/it-IT/$TIMEZONE/g" "$flow_workdir/$FLOW_NAME2.json" && bashio::log.info "tokenGenerator Insert value $FLOW_NAME2.json complete." || bashio::exit.nok "Error AqaraPost-Homeassistant tokenGenerator"
+	apply_flow_values "$flow_workdir/$FLOW_NAME2.json" "$LUMI2" && bashio::log.info "tokenGenerator Insert value $FLOW_NAME2.json complete." || bashio::exit.nok "Error AqaraPost-Homeassistant tokenGenerator"
 	fi
 	
 	if  bashio::fs.file_exists "$flow_workdir/$FLOW_NAME3.json"; then
-	sed -i "s/XXXXXXAREAXXXXXXXXXXX/$AREA/g" "$flow_workdir/$FLOW_NAME3.json" && sed -i "s/XXXXXXTOKENXXXXXXXXXXX/$TOKEN/g" "$flow_workdir/$FLOW_NAME3.json" && sed -i "s/XXXXXXAPPIDXXXXXXXXXXX/$APPID/g" "$flow_workdir/$FLOW_NAME3.json"  && sed -i "s/XXXXXXAPPKEYXXXXXXXXXXX/$APPKEY/g" "$flow_workdir/$FLOW_NAME3.json" && sed -i "s/XXXXXXUSERIDXXXXXXXXXXX/$USERID/g" "$flow_workdir/$FLOW_NAME3.json" && sed -i "s/lumi1.XXXXXXXXXXXX/$LUMI3/g" "$flow_workdir/$FLOW_NAME3.json" && sed -i "s/rpc-ger.aqara.com/$SERVER/g" "$flow_workdir/$FLOW_NAME3.json" && sed -i "s/it-IT/$TIMEZONE/g" "$flow_workdir/$FLOW_NAME3.json" && bashio::log.info "tokenGenerator Insert value $FLOW_NAME3.json complete." || bashio::exit.nok "Error AqaraPost-Homeassistant tokenGenerator"
+	apply_flow_values "$flow_workdir/$FLOW_NAME3.json" "$LUMI3" && bashio::log.info "tokenGenerator Insert value $FLOW_NAME3.json complete." || bashio::exit.nok "Error AqaraPost-Homeassistant tokenGenerator"
 	fi
 		
 	jq -s 'add' "$flow_workdir"/Aqara_*json > /tmp/AqaraPOST-flows.json && mv /tmp/AqaraPOST-flows.json /config/flows.json && bashio::log.info "flows.json created" || bashio::exit.nok "Error creating flows.json"
 	rm -rf "$flow_workdir" || bashio::log.info "......."
-	rm -rf /tmp/AqaraPOST-tokenGenerator.py || bashio::log.info "......."
 	rm -rf /tmp/AqaraPOST-tokenGenerator.json || bashio::log.info "......."
 
 	fi
