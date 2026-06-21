@@ -4,6 +4,7 @@ FROM ${BUILD_FROM}
 
 # Copy Node-RED package.json
 COPY package.json /opt/
+COPY node-red-dashboard-show-dashboard.patch /tmp/
 
 # Set workdir
 WORKDIR /opt
@@ -40,8 +41,12 @@ RUN \
     \
     && echo -e "StrictHostKeyChecking no" >> /etc/ssh/ssh_config \
     \
-    && patch -d /opt/node_modules/node-red-dashboard -p1 \
-             -i /tmp/node-red-dashboard-show-dashboard.patch \
+    && if [ -d /opt/node_modules/node-red-dashboard ] && [ -f /tmp/node-red-dashboard-show-dashboard.patch ]; then \
+        patch -d /opt/node_modules/node-red-dashboard -p1 \
+            -i /tmp/node-red-dashboard-show-dashboard.patch; \
+    else \
+        echo "node-red-dashboard patch skipped"; \
+    fi \
     \
     && apk del --no-cache --purge .build-dependencies \
     && rm -fr \

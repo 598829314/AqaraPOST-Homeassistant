@@ -33,7 +33,7 @@ backup_exclude:
   - "node_modules"
 options:
   usernameAqara: example@gmail.com
-  passwordAqara: []
+  passwordAqara: ""
   serverAqara: EU
   timezoneAqara: it-IT
   lumi1Aqara: lumi1.a1b2c3e4f5
